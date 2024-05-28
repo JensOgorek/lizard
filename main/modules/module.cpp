@@ -25,6 +25,7 @@
 #include "roboclaw_wheels.h"
 #include "serial.h"
 #include "stepper_motor.h"
+#include "wifi.h"
 #include <stdarg.h>
 
 Module::Module(const ModuleType type, const std::string name) : type(type), name(name) {
@@ -282,6 +283,12 @@ Module_ptr Module::create(const std::string type,
         const Can_ptr can_module = get_module_paramter<Can>(arguments[0], can, "can connection");
         CanOpenMaster_ptr master = std::make_shared<CanOpenMaster>(name, can_module);
         return master;
+    } else if (type == "Wifi") {
+        Module::expect(arguments, 2, string, string);
+        std::string ssid = arguments[0]->evaluate_string();
+        std::string password = arguments[1]->evaluate_string();
+        Wifi_ptr wifi = std::make_shared<Wifi_test>(ssid, password);
+        return wifi;
     } else {
         throw std::runtime_error("unknown module type \"" + type + "\"");
     }
