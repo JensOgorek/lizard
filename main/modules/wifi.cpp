@@ -14,35 +14,13 @@
 #include <stdio.h> //for basic printf commands
 #include <string>  //for handling strings
 
-const char *g_ssid = "Tet"; // hardcoded ssid and password from test wifi
-const char *g_password = "12341234";
+const char *g_ssid = "nope"; // hardcoded ssid and password from test wifi
+const char *g_password = "1337133713371337";
 
 int retry_num = 0;
 
 static std::atomic<bool> shuttingDown{false};
 // w = Wifi('f','f')
-static ZZ::EventHandler wifiEventHandler{
-    WIFI_EVENT,
-    [](int32_t event, void *) -> void {
-        switch (event) {
-        case WIFI_EVENT_STA_START:
-            echo("WIFI CONNECTING....");
-            esp_wifi_connect();
-            return;
-
-        case WIFI_EVENT_STA_DISCONNECTED:
-            if (shuttingDown.load()) {
-                echo("WiFi disconnected, but we are shutting down");
-                return;
-            }
-
-            echo("WiFi lost connection. Retrying to connect...");
-            // ImageDelivery::queueDisable();
-            esp_wifi_connect();
-            return;
-        }
-    },
-};
 
 static void wifi_event_handler(void *event_handler_arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
     echo("wifi event handler");
@@ -52,7 +30,7 @@ static void wifi_event_handler(void *event_handler_arg, esp_event_base_t event_b
         printf("WiFi CONNECTED\n");
     } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
         printf("WiFi lost connection\n");
-        if (retry_num < 5) {
+        if (retry_num < 10) {
             esp_wifi_connect();
             retry_num++;
             printf("Retrying to Connect...\n");
@@ -68,11 +46,10 @@ Wifi_test::Wifi_test(const std::string ssid, const std::string password) : Modul
 }
 
 void Wifi_test::v1() {
-    //                          s1.4
-    // 2 - Wi-Fi Configuration Phase
+
     esp_netif_init();
     esp_event_loop_create_default();
-    esp_netif_create_default_wifi_sta();
+    esp_netif_create_default_wifi_sta(); // move up?
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     esp_wifi_init(&cfg);
     esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL);
@@ -92,39 +69,6 @@ void Wifi_test::v1() {
 }
 
 void Wifi_test::v2() {
-    esp_netif_t *netif{esp_netif_create_default_wifi_sta()};
-    const char *hostname = "esp32";
-    esp_netif_set_hostname(netif, hostname);
-
-    wifi_init_config_t cfg WIFI_INIT_CONFIG_DEFAULT();
-    esp_wifi_init(&cfg);
-    // wifiEventHandler.registerMainLoop();
-    esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL);
-    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL);
-    wifi_pmf_config_t pmf_conf{};
-    pmf_conf.capable = true;
-    pmf_conf.required = false;
-
-    wifi_sta_config_t staConf{};
-
-    assert(strlen(g_ssid) < sizeof(staConf.ssid));
-    assert(strlen(g_password) < sizeof(staConf.password));
-    std::memcpy(staConf.ssid, g_ssid, strlen(g_ssid));
-    std::memcpy(staConf.password, g_password, strlen(g_password));
-    staConf.threshold.authmode = WIFI_AUTH_WPA2_PSK;
-    staConf.pmf_cfg = pmf_conf;
-
-    wifi_config_t wifi_conf{};
-    wifi_conf.sta = staConf;
-
-    esp_wifi_set_mode(WIFI_MODE_STA);
-    esp_wifi_set_config(WIFI_IF_STA, &wifi_conf);
-    esp_wifi_start();
-    esp_wifi_connect();
-    echo("Connecting to WiFi");
-}
-
-void Wifi_test::v3() {
     esp_netif_init();
     esp_event_loop_create_default();
     esp_netif_create_default_wifi_sta();
@@ -168,9 +112,6 @@ void Wifi_test::call(const std::string method_name, const std::vector<ConstExpre
     } else if (method_name == "v2") {
         Module::expect(arguments, 0, string, string);
         this->v2();
-    } else if (method_name == "v3") {
-        Module::expect(arguments, 0, string, string);
-        this->v3();
     } else if (method_name == "stop") {
         Module::expect(arguments, 0, string, string);
         this->shutdown();

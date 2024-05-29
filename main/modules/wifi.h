@@ -9,7 +9,6 @@ class Wifi_test : public Module {
 private:
     void v1();
     void v2();
-    void v3();
     void shutdown();
 
 public:
