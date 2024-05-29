@@ -10,6 +10,7 @@ private:
     void v1();
     void v2();
     void shutdown();
+    void attempt_ota();
 
 public:
     Wifi_test(const std::string ssid, const std::string password);

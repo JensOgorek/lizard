@@ -14,8 +14,14 @@
 #include <stdio.h> //for basic printf commands
 #include <string>  //for handling strings
 
+#include "esp_https_ota.h"
+#include "esp_ota_ops.h"
+
 const char *g_ssid = "nope"; // hardcoded ssid and password from test wifi
 const char *g_password = "1337133713371337";
+const char *g_host = "192....";
+const char *g_path = "/ota/binary";
+const char *g_port = "81";
 
 int retry_num = 0;
 
@@ -105,6 +111,51 @@ void Wifi_test::v2() {
     echo("Connecting to WiFi");
 }
 
+void Wifi_test::attempt_ota() {
+    esp_http_client_config_t config{};
+    esp_err_t err, finish_err;
+    config.skip_cert_common_name_check = true;
+    config.keep_alive_enable = true;
+    config.host = g_host;
+    config.path = g_path;
+    config.port = atoi(g_port);
+    config.buffer_size = 1024;
+    config.timeout_ms = 10 * 1000;
+    echo("OTA Attempt at %s:%s%s", g_host, g_port, g_path);
+
+    esp_https_ota_config_t ota_config{};
+    ota_config.http_config = &config;
+
+    esp_https_ota_handle_t https_ota_handle;
+    err = esp_https_ota_begin(&ota_config, &https_ota_handle); // hier changes ggf nötig
+
+    while (true) {
+        err = esp_https_ota_perform(https_ota_handle);
+        if (err != ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
+            break;
+        }
+        echo("Image bytes read: %d", esp_https_ota_get_image_len_read(https_ota_handle));
+    }
+
+    if (esp_https_ota_is_complete_data_received(https_ota_handle) != true) {
+        echo("Complete data was not received");
+    } else {
+        echo("Complete data was received. finishing OTA");
+        finish_err = esp_https_ota_finish(https_ota_handle);
+        if ((err == ESP_OK) && (finish_err == ESP_OK)) {
+            echo("OTA Successful. Rebooting");
+            esp_restart();
+        } else {
+            if (finish_err == ESP_ERR_OTA_VALIDATE_FAILED) {
+                echo("OTA Failed. Image validation failed");
+            }
+            echo("OTA Failed. Error: %s", esp_err_to_name(finish_err));
+        }
+    }
+
+    esp_https_ota_abort(https_ota_handle);
+}
+
 void Wifi_test::call(const std::string method_name, const std::vector<ConstExpression_ptr> arguments) {
     if (method_name == "v1") {
         Module::expect(arguments, 0, string, string);
@@ -115,6 +166,10 @@ void Wifi_test::call(const std::string method_name, const std::vector<ConstExpre
     } else if (method_name == "stop") {
         Module::expect(arguments, 0, string, string);
         this->shutdown();
+    } else if (method_name == "ota") {
+        // stop?
+        Module::expect(arguments, 0, string, string);
+        this->attempt_ota();
     } else {
         echo("Method not found");
     }
