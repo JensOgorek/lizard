@@ -19,7 +19,7 @@
 
 const char *g_ssid = "nope"; // hardcoded ssid and password from test wifi
 const char *g_password = "1337133713371337";
-const char *g_host = "192....";
+const char *g_host = "192.1.1.1";
 const char *g_path = "/ota/binary";
 const char *g_port = "81";
 
@@ -27,6 +27,12 @@ int retry_num = 0;
 
 static std::atomic<bool> shuttingDown{false};
 // w = Wifi('f','f')
+
+void echo_error(esp_err_t err) {
+    if (err != ESP_OK) {
+        echo("Error: %s", esp_err_to_name(err));
+    }
+}
 
 static void wifi_event_handler(void *event_handler_arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
     echo("wifi event handler");
@@ -37,7 +43,7 @@ static void wifi_event_handler(void *event_handler_arg, esp_event_base_t event_b
     } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
         printf("WiFi lost connection\n");
         if (retry_num < 10) {
-            esp_wifi_connect();
+            echo_error(esp_wifi_connect());
             retry_num++;
             printf("Retrying to Connect...\n");
         }
@@ -52,25 +58,26 @@ Wifi_test::Wifi_test(const std::string ssid, const std::string password) : Modul
 }
 
 void Wifi_test::v1() {
-
-    esp_netif_init();
-    esp_event_loop_create_default();
+    // nvs_flash_init();
+    echo_error(nvs_flash_init());
+    echo_error(esp_netif_init());
+    echo_error(esp_event_loop_create_default());
     esp_netif_create_default_wifi_sta(); // move up?
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    esp_wifi_init(&cfg);
-    esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL);
-    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL);
-
+    // esp_wifi_init(&cfg);
+    echo_error(esp_wifi_init(&cfg));
+    echo_error(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
+    echo_error(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL));
     wifi_config_t wifi_config{};
 
     strcpy((char *)wifi_config.sta.ssid, g_ssid);
     strcpy((char *)wifi_config.sta.password, g_password);
     // echo("wifi config ssid: %s", wifi_config.sta.ssid);
 
-    esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
-    esp_wifi_start();
-    esp_wifi_set_mode(WIFI_MODE_STA);
-    esp_wifi_connect();
+    echo_error(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    echo_error(esp_wifi_start());
+    echo_error(esp_wifi_set_mode(WIFI_MODE_STA));
+    echo_error(esp_wifi_connect());
     echo("Connecting to WiFi");
 }
 
