@@ -95,18 +95,20 @@ esp_err_t http_event_handler(esp_http_client_event_t *evt) {
         echo("HTTP_EVENT_HEADER_SENT\n");
         break;
     case HTTP_EVENT_ON_HEADER:
-        echo("HTTP_EVENT_ON_HEADER\n");
+        echo("Header %s: %s\n", evt->header_key, evt->header_value);
+        if (strcasecmp(evt->header_key, "Content-Length") == 0) {
+            total_content_length = strtoul(evt->header_value, NULL, 10);
+            echo("Total content length set: %d bytes\n", total_content_length);
+        }
         break;
     case HTTP_EVENT_ON_DATA:
         received_length += evt->data_len;
-        if (total_content_length == 0) {
-            total_content_length = strtoul(evt->header_value, NULL, 10);
-            echo("Total content length: %d bytes\n", total_content_length);
-        }
         if (evt->data_len > 0) {
-            echo("Received data (%d bytes), Total received: %d bytes\n", evt->data_len, received_length);
-            double percentage = (double)received_length / total_content_length * 100;
-            echo("Progress: %.2f%%\n", percentage);
+            echo("Received data (%d bytes), Total received: %d bytes", evt->data_len, received_length);
+            if (total_content_length > 0) {
+                double percentage = (double)received_length / total_content_length * 100;
+                echo("Progress: %.2f%%\n", percentage);
+            }
         }
         // Optionally, you can check here if received_length == total_content_length
         if (received_length == total_content_length) {
