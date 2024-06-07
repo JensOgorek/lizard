@@ -1,6 +1,7 @@
 #include "core.h"
 #include "../global.h"
 #include "../storage.h"
+#include "../utils/ota.h"
 #include "../utils/string_utils.h"
 #include "../utils/timing.h"
 #include "../utils/uart.h"
@@ -72,6 +73,17 @@ void Core::call(const std::string method_name, const std::vector<ConstExpression
             checksum += c;
         }
         echo("checksum: %04x", checksum);
+        echo("test0");
+    } else if (method_name == "ota") {
+        Module::expect(arguments, 3, string, string, string);
+        const std::string ssid = arguments[0]->evaluate_string();
+        const std::string password = arguments[1]->evaluate_string();
+        const std::string url = arguments[2]->evaluate_string();
+
+        ota::init(ssid, password, url);
+    } else if (method_name == "test") {
+        Module::expect(arguments, 0);
+        echo("test");
     } else {
         Module::call(method_name, arguments);
     }
