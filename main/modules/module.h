@@ -31,7 +31,6 @@ enum ModuleType {
     canopen_master,
     proxy,
     number_of_module_types,
-    wifi,
 };
 
 class Module;
