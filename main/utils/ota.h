@@ -9,5 +9,6 @@ void setup_wifi(const char *ssid, const char *password);
 void attempt(const char *url);
 void verify();
 void version_checker(const char *url);
+void what_version_bro();
 
 } // namespace ota

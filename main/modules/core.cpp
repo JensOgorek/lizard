@@ -14,6 +14,7 @@ Core::Core(const std::string name) : Module(core, name) {
     this->properties["millis"] = std::make_shared<IntegerVariable>();
     this->properties["heap"] = std::make_shared<IntegerVariable>();
     this->properties["last_message_age"] = std::make_shared<IntegerVariable>();
+    ota::what_version_bro();
 }
 
 void Core::step() {

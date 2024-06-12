@@ -226,6 +226,10 @@ void verify() {
     }
 }
 
+void what_version_bro() {
+    echo("Version: %s", GIT_VERSION);
+}
+
 void version_checker(const char *url) {
     esp_http_client_config_t config{};
     esp_err_t err;
@@ -235,20 +239,21 @@ void version_checker(const char *url) {
     config.method = HTTP_METHOD_GET;
 
     echo("Checking version at %s", url);
+    echo("VERSION: %s", GIT_VERSION);
 
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    err = esp_http_client_perform(client);
+    //     esp_http_client_handle_t client = esp_http_client_init(&config);
+    // err = esp_http_client_perform(client);
 
-    if (err == ESP_OK) {
-        int status_code = esp_http_client_get_status_code(client);
-        if (status_code == 200) {
-            int content_length = esp_http_client_get_content_length(client);
-            std::vector<char> buffer(content_length + 1, 0);
-            esp_http_client_read(client, buffer.data(), content_length);
+    // if (err == ESP_OK) {
+    //     int status_code = esp_http_client_get_status_code(client);
+    //     if (status_code == 200) {
+    //         int content_length = esp_http_client_get_content_length(client);
+    //         std::vector<char> buffer(content_length + 1, 0);
+    //         esp_http_client_read(client, buffer.data(), content_length);
 
-            echo("Version: %s", buffer.data());
-        }
-    }
+    //         echo("Version: %s", buffer.data());
+    //     }
+    // }
 }
 
 } // namespace ota
