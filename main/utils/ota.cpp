@@ -8,18 +8,20 @@
 #include "freertos/FreeRTOS.h" //for delay,mutexs,semphrs rtos operations
 #include "nvs_flash.h"         //non volatile storage
 #include "utils/uart.h"
+#include "version.h"
 #include <atomic>
 #include <cstring>
 #include <memory>
 #include <stdio.h> //for basic printf commands
 #include <string>  //for handling strings
+#include <vector>
 
 #include "esp_https_ota.h"
 #include "esp_ota_ops.h"
 
 namespace ota {
 
-static RTC_NOINIT_ATTR bool check_hash_;
+static RTC_NOINIT_ATTR bool check_version_;
 static RTC_NOINIT_ATTR std::string ssid_;
 static RTC_NOINIT_ATTR std::string password_;
 static RTC_NOINIT_ATTR std::string url_;
@@ -75,7 +77,12 @@ void wifi_event_handler(void *event_handler_arg, esp_event_base_t event_base, in
     }
     case IP_EVENT_STA_GOT_IP:
         echo("WiFi got IP...\n");
-        attempt(url_.c_str());
+        if (check_version_) {
+            std::string url = url_ + "/verify";
+            version_checker(url.c_str());
+        } else {
+            attempt(url_.c_str());
+        }
         break;
     default:
         echo("Unhandled WiFi Event: %d\n", event_id);
@@ -178,7 +185,7 @@ void attempt(const char *url) {
 
     err = esp_https_ota(&config);
     if (err == ESP_OK) {
-        check_hash_ = true;
+        check_version_ = true;
         shutdown();
         echo("OTA Successful. Rebooting");
         esp_restart();
@@ -197,19 +204,51 @@ void shutdown() {
     echo("WiFi module shutdown");
 }
 
-void veryify() {
+void verify() {
     esp_reset_reason_t reason = esp_reset_reason();
     if (reason != ESP_RST_DEEPSLEEP && reason != ESP_RST_SW) {
         echo("Not deepsleep or software reset");
-        check_hash_ = false;
+        check_version_ = false;
         ssid_ = nullptr;
         password_ = nullptr;
         url_ = nullptr;
     } else {
         echo("deepsleep or software reset");
-    }
-
-    if (check_hash_) {
+        if (check_version_) {
+            echo("Detected ota update, checking version");
+            if (is_wifi_connected()) {
+                echo("Already connected to WiFi");
+                std::string url = url_ + "/verify";
+                version_checker(url.c_str());
+                setup_wifi(ssid_.c_str(), password_.c_str());
+            }
+        }
     }
 }
+
+void version_checker(const char *url) {
+    esp_http_client_config_t config{};
+    esp_err_t err;
+    config.url = url;
+    config.buffer_size = 1024;
+    config.timeout_ms = 10 * 1000;
+    config.method = HTTP_METHOD_GET;
+
+    echo("Checking version at %s", url);
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    err = esp_http_client_perform(client);
+
+    if (err == ESP_OK) {
+        int status_code = esp_http_client_get_status_code(client);
+        if (status_code == 200) {
+            int content_length = esp_http_client_get_content_length(client);
+            std::vector<char> buffer(content_length + 1, 0);
+            esp_http_client_read(client, buffer.data(), content_length);
+
+            echo("Version: %s", buffer.data());
+        }
+    }
+}
+
 } // namespace ota
