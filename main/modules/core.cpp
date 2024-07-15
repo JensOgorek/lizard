@@ -10,10 +10,13 @@
 #include "esp_spi_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <cstring>
 #include <memory>
 #include <stdlib.h>
 
 #define BUF_SIZE (1024)
+
+uint8_t ota_write_data[BUF_SIZE + 1] = {0};
 
 Core::Core(const std::string name) : Module(core, name) {
     this->properties["debug"] = std::make_shared<BooleanVariable>(false);
@@ -140,39 +143,85 @@ void Core::receive_ota_uart(void *pvParameters) {
         return;
     }
 
+    // flush the uart buffer
+    uart_flush(UART_NUM_1);
+
     size_t bytes_received = 0;
+    int file_length = 0;
+    bool image_header_read = false;
     while (1) {
-        int len = uart_read_bytes(UART_NUM_1, data, BUF_SIZE, 20 / portTICK_RATE_MS);
-        if (len > 0) {
-            err = esp_ota_write(update_handle, (const void *)data, len);
+        // int len = uart_read_bytes(UART_NUM_1, data, BUF_SIZE, 20 / portTICK_RATE_MS);
+        int len = uart_read_bytes(UART_NUM_1, ota_write_data, BUF_SIZE, 800);
+        if (len < 0) {
+            echo("Error reading data: %d", len);
+            break;
+        } else if (len > 0) {
+            if (image_header_read == false) {
+                esp_app_desc_t new_app_info;
+                if (len > sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t)) {
+                    memcpy(&new_app_info, &ota_write_data[sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t)], sizeof(esp_app_desc_t));
+                    echo("New firmware version: %s", new_app_info.version);
+
+                    esp_app_desc_t running_app_info;
+                    if (esp_ota_get_partition_description(esp_ota_get_running_partition(), &running_app_info) == ESP_OK) {
+                        echo("Running firmware version: %s", running_app_info.version);
+                    }
+
+                    const esp_partition_t *running_partition = esp_ota_get_last_invalid_partition();
+                    if (running_partition != NULL) {
+                        echo("Invalid firmware version: %s", running_app_info.version);
+                    }
+
+                    if (memcmp(new_app_info.version, running_app_info.version, sizeof(new_app_info.version)) == 0) {
+                        echo("Current running version is same as the new. We will not continue the update");
+                        break;
+                    }
+
+                    image_header_read = true;
+
+                    err = esp_ota_begin(update_partition, OTA_SIZE_UNKNOWN, &update_handle);
+                    if (err != ESP_OK) {
+                        echo("esp_ota_begin failed: 0x%x", err);
+                        break;
+                    }
+                    echo("Begin OTA. This may take a while to complete");
+                } else {
+                    echo("received package is not fit len");
+                    // task_fatal_error();
+                    break;
+                }
+            }
+            err = esp_ota_write(update_handle, (const void *)ota_write_data, len);
             if (err != ESP_OK) {
-                echo("esp_ota_write failed: 0x%x", err);
+                echo("Error: esp_ota_write failed! err=0x%x", err);
                 break;
             }
             bytes_received += len;
-        } else if (len < 0) {
-            echo("Error reading data: 0x%x", len);
+            echo("Written image length %d", bytes_received);
+        } else {
+            echo("No data read");
             break;
         }
     }
 
-    err = esp_ota_end(update_handle);
-    if (err == ESP_OK) {
-        err = esp_ota_set_boot_partition(update_partition);
-        if (err == ESP_OK) {
-            echo("OTA succeeded, %d bytes received", bytes_received);
-            esp_restart();
-        } else {
-            echo("esp_ota_set_boot_partition failed: 0x%x", err);
-        }
-    } else {
-        echo("esp_ota_end failed: 0x%x", err);
+    echo("Total Write binary data length: %d", bytes_received);
+
+    if (esp_ota_end(update_handle) != ESP_OK) {
+        echo("esp_ota_end failed!");
+        return;
     }
 
-    echo("Total bytes received: %d", bytes_received);
-    free(data);
-    vTaskDelete(NULL);
+    err = esp_ota_set_boot_partition(update_partition);
+    if (err != ESP_OK) {
+        echo("esp_ota_set_boot_partition failed! err=0x%x", err);
+        return;
+    }
+
+    echo("Prepare to restart system!");
+    esp_restart();
+    return;
 }
+
 void Core::keep_alive() {
     this->last_message_millis = millis();
 }
