@@ -26,5 +26,5 @@ public:
     void set(std::string property_name, double value);
     std::string get_output() const override;
     void keep_alive();
-    static void receive_ota_uart(void *pvParameters);
+    void receive_ota_uart();
 };

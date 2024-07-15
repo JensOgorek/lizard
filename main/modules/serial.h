@@ -31,5 +31,5 @@ public:
     void clear() const;
     std::string get_output() const override;
     void call(const std::string method_name, const std::vector<ConstExpression_ptr> arguments) override;
-    static void send_ota_wire(void *pvParameters);
+    void send_ota_wire();
 };

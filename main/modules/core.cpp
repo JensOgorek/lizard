@@ -92,7 +92,8 @@ void Core::call(const std::string method_name, const std::vector<ConstExpression
         xTaskCreate(ota::ota_task, "ota_task", 8192, params, 5, nullptr);
     } else if (method_name == "receive_ota") {
         Module::expect(arguments, 0);
-        xTaskCreate(this->receive_ota_uart, "uart_ota_task", 4096, NULL, 5, NULL);
+        // xTaskCreate(this->receive_ota_uart, "uart_ota_task", 4096, NULL, 5, NULL);
+        this->receive_ota_uart();
     } else {
         Module::call(method_name, arguments);
     }
@@ -126,20 +127,20 @@ std::string Core::get_output() const {
     }
     return std::string(output_buffer);
 }
-void Core::receive_ota_uart(void *pvParameters) {
+void Core::receive_ota_uart() {
     const esp_partition_t *update_partition = esp_ota_get_next_update_partition(NULL);
     esp_ota_handle_t update_handle;
     esp_err_t err = esp_ota_begin(update_partition, OTA_SIZE_UNKNOWN, &update_handle);
     if (err != ESP_OK) {
         echo("esp_ota_begin failed: 0x%x", err);
-        vTaskDelete(NULL);
+        // vTaskDelete(NULL);
         return;
     }
 
     uint8_t *data = (uint8_t *)malloc(BUF_SIZE);
     if (data == NULL) {
         echo("Failed to allocate memory");
-        vTaskDelete(NULL);
+        // vTaskDelete(NULL);
         return;
     }
 

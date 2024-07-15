@@ -6,6 +6,9 @@
 #define RX_BUF_SIZE 1024
 #define TX_BUF_SIZE 1024
 
+#include <esp32_port.h>
+#include <esp_loader.h>
+
 Serial::Serial(const std::string name,
                const gpio_num_t rx_pin, const gpio_num_t tx_pin, const long baud_rate, const uart_port_t uart_num)
     : Module(serial, name), rx_pin(rx_pin), tx_pin(tx_pin), baud_rate(baud_rate), uart_num(uart_num) {
@@ -104,18 +107,68 @@ std::string Serial::get_output() const {
     return buffer;
 }
 
-void Serial::send_ota_wire(void *pvParameters) {
+static auto initConnection(const uart_port_t uart_num,
+                           const gpio_num_t rx_pin,
+                           const gpio_num_t tx_pin,
+                           const uint32_t baud_rate,
+                           const uint32_t block_size) -> bool {
+    loader_esp32_config_t conf{};
+    conf.baud_rate = baud_rate;
+    conf.uart_port = uart_num;
+    conf.uart_rx_pin = rx_pin;
+    conf.uart_tx_pin = tx_pin;
+
+    esp_loader_error_t status{loader_port_esp32_init(&conf)};
+    echo("loader_port_esp32_init() -> %u", status);
+    if (status != ESP_LOADER_SUCCESS) {
+        echo("initializing communication pins");
+        return false;
+    }
+
+    return true;
+}
+
+static auto connect() -> bool {
+    esp_loader_connect_args_t args{};
+    args.trials = 4;
+    args.sync_timeout = 100;
+    esp_loader_error_t status{esp_loader_connect(&args)};
+    echo("esp_loader_connect() -> %u", status);
+
+    if (status != ESP_LOADER_SUCCESS) {
+        echo("connecting failed");
+        return false;
+    }
+    return true;
+}
+
+void Serial::send_ota_wire() {
+    deinstall();
+
+    if (!initConnection(uart_num, rx_pin, tx_pin, 115200, 0x1000)) {
+        echo("Failed to initialize connection");
+        return;
+    }
+
+    // Deiniter deiniter{};
+
+    echo("Connecting..");
+    if (!connect()) {
+        echo("Failed to connect");
+        return;
+    }
+
     const esp_partition_t *running_partition = esp_ota_get_running_partition();
     if (running_partition == NULL) {
         echo("Could not find running partition");
-        vTaskDelete(NULL);
+        // vTaskDelete(NULL);
         return;
     }
 
     uint8_t *data = (uint8_t *)malloc(1024);
     if (data == NULL) {
         echo("Failed to allocate memory");
-        vTaskDelete(NULL);
+        // vTaskDelete(NULL);
         return;
     }
 
@@ -133,7 +186,7 @@ void Serial::send_ota_wire(void *pvParameters) {
 
     echo("Finished reading partition, total bytes read: %d", bytes_read);
     free(data);
-    vTaskDelete(NULL);
+    // vTaskDelete(NULL);
 }
 
 void Serial::call(const std::string method_name, const std::vector<ConstExpression_ptr> arguments) {
@@ -149,8 +202,7 @@ void Serial::call(const std::string method_name, const std::vector<ConstExpressi
         echo("%s %s", this->name.c_str(), output.c_str());
     } else if (method_name == "wire_ota") {
         Module::expect(arguments, 0);
-        uart_port_t uart_num = this->uart_num;
-        xTaskCreate(this->send_ota_wire, "uart_ota_task", 4096, static_cast<void *>(&uart_num), 5, NULL);
+        this->send_ota_wire();
     } else {
         Module::call(method_name, arguments);
     }
