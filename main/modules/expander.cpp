@@ -6,8 +6,6 @@
 #include "utils/uart.h"
 #include <cstring>
 
-#define BUF_SIZE (1024)
-
 Expander::Expander(const std::string name,
                    const ConstSerial_ptr serial,
                    const gpio_num_t boot_pin,
@@ -89,7 +87,6 @@ void Expander::call(const std::string method_name, const std::vector<ConstExpres
         if (!success) {
             throw std::runtime_error("could not flash expander \"" + this->name + "\"");
         }
-
     } else {
         static char buffer[1024];
         int pos = std::sprintf(buffer, "core.%s(", method_name.c_str());
