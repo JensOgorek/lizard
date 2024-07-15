@@ -143,33 +143,26 @@ void Core::receive_ota_uart(void *pvParameters) {
         return;
     }
 
-    // flush the uart buffer
+    // Flush the UART buffer
     uart_flush(UART_NUM_1);
 
     size_t bytes_received = 0;
-    int file_length = 0;
     bool image_header_read = false;
     while (1) {
-        // int len = uart_read_bytes(UART_NUM_1, data, BUF_SIZE, 20 / portTICK_RATE_MS);
-        int len = uart_read_bytes(UART_NUM_1, ota_write_data, BUF_SIZE, 800);
+        int len = uart_read_bytes(UART_NUM_1, data, BUF_SIZE, 800 / portTICK_RATE_MS);
         if (len < 0) {
             echo("Error reading data: %d", len);
             break;
         } else if (len > 0) {
-            if (image_header_read == false) {
+            if (!image_header_read) {
                 esp_app_desc_t new_app_info;
                 if (len > sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t)) {
-                    memcpy(&new_app_info, &ota_write_data[sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t)], sizeof(esp_app_desc_t));
+                    memcpy(&new_app_info, &data[sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t)], sizeof(esp_app_desc_t));
                     echo("New firmware version: %s", new_app_info.version);
 
                     esp_app_desc_t running_app_info;
                     if (esp_ota_get_partition_description(esp_ota_get_running_partition(), &running_app_info) == ESP_OK) {
                         echo("Running firmware version: %s", running_app_info.version);
-                    }
-
-                    const esp_partition_t *running_partition = esp_ota_get_last_invalid_partition();
-                    if (running_partition != NULL) {
-                        echo("Invalid firmware version: %s", running_app_info.version);
                     }
 
                     if (memcmp(new_app_info.version, running_app_info.version, sizeof(new_app_info.version)) == 0) {
@@ -178,20 +171,13 @@ void Core::receive_ota_uart(void *pvParameters) {
                     }
 
                     image_header_read = true;
-
-                    err = esp_ota_begin(update_partition, OTA_SIZE_UNKNOWN, &update_handle);
-                    if (err != ESP_OK) {
-                        echo("esp_ota_begin failed: 0x%x", err);
-                        break;
-                    }
                     echo("Begin OTA. This may take a while to complete");
                 } else {
-                    echo("received package is not fit len");
-                    // task_fatal_error();
+                    echo("Received package is not fit len");
                     break;
                 }
             }
-            err = esp_ota_write(update_handle, (const void *)ota_write_data, len);
+            err = esp_ota_write(update_handle, (const void *)data, len);
             if (err != ESP_OK) {
                 echo("Error: esp_ota_write failed! err=0x%x", err);
                 break;

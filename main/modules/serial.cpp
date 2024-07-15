@@ -127,7 +127,7 @@ void Serial::send_ota_wire(void *pvParameters) {
             echo("esp_partition_read failed at offset 0x%x (0x%x)", offset, err);
             break;
         }
-        uart_write_bytes(*static_cast<uart_port_t *>(pvParameters), (const char *)data, read_size);
+        uart_write_bytes(UART_NUM_1, (const char *)data, read_size); // Ensure UART_NUM_1 is correct
         bytes_read += read_size;
     }
 
