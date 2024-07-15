@@ -5,11 +5,15 @@
 #include "../utils/string_utils.h"
 #include "../utils/timing.h"
 #include "../utils/uart.h"
+#include "driver/uart.h"
 #include "esp_ota_ops.h"
+#include "esp_spi_flash.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <memory>
 #include <stdlib.h>
+
+#define BUF_SIZE (1024)
 
 Core::Core(const std::string name) : Module(core, name) {
     this->properties["debug"] = std::make_shared<BooleanVariable>(false);
@@ -83,6 +87,9 @@ void Core::call(const std::string method_name, const std::vector<ConstExpression
             arguments[2]->evaluate_string(),
         };
         xTaskCreate(ota::ota_task, "ota_task", 8192, params, 5, nullptr);
+    } else if (method_name == "receive_ota") {
+        Module::expect(arguments, 0);
+        xTaskCreate(this->receive_ota_uart, "uart_ota_task", 4096, NULL, 5, NULL);
     } else {
         Module::call(method_name, arguments);
     }
@@ -116,7 +123,56 @@ std::string Core::get_output() const {
     }
     return std::string(output_buffer);
 }
+void Core::receive_ota_uart(void *pvParameters) {
+    const esp_partition_t *update_partition = esp_ota_get_next_update_partition(NULL);
+    esp_ota_handle_t update_handle;
+    esp_err_t err = esp_ota_begin(update_partition, OTA_SIZE_UNKNOWN, &update_handle);
+    if (err != ESP_OK) {
+        echo("esp_ota_begin failed: 0x%x", err);
+        vTaskDelete(NULL);
+        return;
+    }
 
+    uint8_t *data = (uint8_t *)malloc(BUF_SIZE);
+    if (data == NULL) {
+        echo("Failed to allocate memory");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    size_t bytes_received = 0;
+    while (1) {
+        int len = uart_read_bytes(UART_NUM_1, data, BUF_SIZE, 20 / portTICK_RATE_MS);
+        if (len > 0) {
+            err = esp_ota_write(update_handle, (const void *)data, len);
+            if (err != ESP_OK) {
+                echo("esp_ota_write failed: 0x%x", err);
+                break;
+            }
+            bytes_received += len;
+        } else if (len < 0) {
+            echo("Error reading data: 0x%x", len);
+            break;
+        }
+    }
+
+    err = esp_ota_end(update_handle);
+    if (err == ESP_OK) {
+        err = esp_ota_set_boot_partition(update_partition);
+        if (err == ESP_OK) {
+            echo("OTA succeeded, %d bytes received", bytes_received);
+            esp_restart();
+        } else {
+            echo("esp_ota_set_boot_partition failed: 0x%x", err);
+        }
+    } else {
+        echo("esp_ota_end failed: 0x%x", err);
+    }
+
+    echo("Total bytes received: %d", bytes_received);
+    free(data);
+    vTaskDelete(NULL);
+}
 void Core::keep_alive() {
     this->last_message_millis = millis();
 }

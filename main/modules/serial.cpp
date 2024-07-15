@@ -1,7 +1,8 @@
 #include "serial.h"
+#include "esp_ota_ops.h"
+#include "esp_spi_flash.h"
 #include "utils/uart.h"
 #include <cstring>
-
 #define RX_BUF_SIZE 1024
 #define TX_BUF_SIZE 1024
 
@@ -103,6 +104,38 @@ std::string Serial::get_output() const {
     return buffer;
 }
 
+void Serial::send_ota_wire(void *pvParameters) {
+    const esp_partition_t *running_partition = esp_ota_get_running_partition();
+    if (running_partition == NULL) {
+        echo("Could not find running partition");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    uint8_t *data = (uint8_t *)malloc(1024);
+    if (data == NULL) {
+        echo("Failed to allocate memory");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    size_t bytes_read = 0;
+    for (size_t offset = 0; offset < running_partition->size; offset += 1024) {
+        size_t read_size = (offset + 1024 > running_partition->size) ? (running_partition->size - offset) : 1024;
+        esp_err_t err = esp_partition_read(running_partition, offset, data, read_size);
+        if (err != ESP_OK) {
+            echo("esp_partition_read failed at offset 0x%x (0x%x)", offset, err);
+            break;
+        }
+        uart_write_bytes(*static_cast<uart_port_t *>(pvParameters), (const char *)data, read_size);
+        bytes_read += read_size;
+    }
+
+    echo("Finished reading partition, total bytes read: %d", bytes_read);
+    free(data);
+    vTaskDelete(NULL);
+}
+
 void Serial::call(const std::string method_name, const std::vector<ConstExpression_ptr> arguments) {
     if (method_name == "send") {
         for (auto const &argument : arguments) {
@@ -114,6 +147,10 @@ void Serial::call(const std::string method_name, const std::vector<ConstExpressi
     } else if (method_name == "read") {
         const std::string output = this->get_output();
         echo("%s %s", this->name.c_str(), output.c_str());
+    } else if (method_name == "wire_ota") {
+        Module::expect(arguments, 0);
+        uart_port_t uart_num = this->uart_num;
+        xTaskCreate(this->send_ota_wire, "uart_ota_task", 4096, static_cast<void *>(&uart_num), 5, NULL);
     } else {
         Module::call(method_name, arguments);
     }
