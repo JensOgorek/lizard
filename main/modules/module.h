@@ -31,6 +31,7 @@ enum ModuleType {
     canopen_master,
     analog,
     proxy,
+    external_expander,
 };
 
 class Module;
