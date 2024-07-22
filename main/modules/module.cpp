@@ -73,7 +73,7 @@ Module_ptr Module::create(const std::string type,
         std::string serial_name = arguments[0]->evaluate_identifier();
         Module_ptr module = Global::get_module(serial_name);
         if (module->type != serial) {
-            throw std::runtime_error("module \"" + serial_name + "\" is no serial connection");
+            throw std::runtime_error("module \"" + serial_name + "\" is no half duplex serial connection");
         }
         const ConstSerial_ptr serial = std::static_pointer_cast<const Serial>(module);
         const gpio_num_t boot_pin = arguments.size() > 1 ? (gpio_num_t)arguments[1]->evaluate_integer() : GPIO_NUM_NC;
@@ -84,7 +84,9 @@ Module_ptr Module::create(const std::string type,
         std::string serial_name = arguments[0]->evaluate_identifier();
         Module_ptr module = Global::get_module(serial_name);
         if (module->type != half_duplex_serial) {
-            throw std::runtime_error("module \"" + serial_name + "\" is no half duplex serial connection");
+            throw std::runtime_error("module \"" + serial_name + "\" is no serial connection. it is a " + std::to_string(module->type));
+
+            // throw std::runtime_error("module \"" + serial_name + "\" is no serial connection");
         }
         const ConstHalfDuplexSerial_ptr half_duplex_serial = std::static_pointer_cast<const HalfDuplexSerial>(module);
         uint8_t expander_id = arguments[1]->evaluate_integer();

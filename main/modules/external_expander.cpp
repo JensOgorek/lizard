@@ -23,7 +23,7 @@ void ExternalExpander::call(const std::string method_name, const std::vector<Con
     if (method_name == "send") {
         Module::expect(arguments, 1, string);
         std::string command = arguments[0]->evaluate_string();
-        this->half_duplex_serial->send_data(this->expander_id, command);
+        this->half_duplex_serial->send_data_to_sub(this->expander_id, command);
     } else if (method_name == "disconnect") {
         Module::expect(arguments, 0);
         this->half_duplex_serial->deinstall();
@@ -32,6 +32,6 @@ void ExternalExpander::call(const std::string method_name, const std::vector<Con
         int pos = std::sprintf(buffer, "core.%s(", method_name.c_str());
         pos += write_arguments_to_buffer(arguments, &buffer[pos]);
         pos += std::sprintf(&buffer[pos], ")");
-        this->half_duplex_serial->send_data(this->expander_id, std::string(buffer));
+        this->half_duplex_serial->send_data_to_sub(this->expander_id, std::string(buffer));
     }
 }
