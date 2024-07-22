@@ -32,6 +32,7 @@ enum ModuleType {
     analog,
     proxy,
     external_expander,
+    half_duplex_serial,
 };
 
 class Module;

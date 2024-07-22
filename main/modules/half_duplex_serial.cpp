@@ -7,7 +7,7 @@ HalfDuplexSerial::HalfDuplexSerial(const std::string name,
                                    const gpio_num_t rx_pin, const gpio_num_t tx_pin, const long baud_rate, const uart_port_t uart_num)
     : Serial(name, rx_pin, tx_pin, baud_rate, uart_num) {}
 
-void HalfDuplexSerial::send_data_to_slave(uint8_t slave_id, const std::string &data) const {
+void HalfDuplexSerial::send_data(uint8_t slave_id, const std::string &data) const {
     std::string message = std::to_string(slave_id) + ":" + data;
     uart_write_bytes(this->uart_num, message.c_str(), message.length());
 }

@@ -11,6 +11,7 @@
 #include "driver/pcnt.h"
 #include "expander.h"
 #include "external_expander.h"
+#include "half_duplex_serial.h"
 #include "imu.h"
 #include "input.h"
 #include "linear_motor.h"
@@ -82,12 +83,12 @@ Module_ptr Module::create(const std::string type,
         Module::expect(arguments, 2, identifier, integer);
         std::string serial_name = arguments[0]->evaluate_identifier();
         Module_ptr module = Global::get_module(serial_name);
-        if (module->type != serial) {
-            throw std::runtime_error("module \"" + serial_name + "\" is no serial connection");
+        if (module->type != half_duplex_serial) {
+            throw std::runtime_error("module \"" + serial_name + "\" is no half duplex serial connection");
         }
-        const ConstSerial_ptr serial = std::static_pointer_cast<const Serial>(module);
-        uint8_t address = arguments[1]->evaluate_integer();
-        return std::make_shared<ExternalExpander>(name, serial, address, message_handler);
+        const ConstHalfDuplexSerial_ptr half_duplex_serial = std::static_pointer_cast<const HalfDuplexSerial>(module);
+        uint8_t expander_id = arguments[1]->evaluate_integer();
+        return std::make_shared<ExternalExpander>(name, half_duplex_serial, expander_id, message_handler);
     } else if (type == "Bluetooth") {
         Module::expect(arguments, 1, string);
         std::string device_name = arguments[0]->evaluate_string();
@@ -246,6 +247,13 @@ Module_ptr Module::create(const std::string type,
         long baud_rate = arguments[2]->evaluate_integer();
         gpio_port_t uart_num = (gpio_port_t)arguments[3]->evaluate_integer();
         return std::make_shared<Serial>(name, rx_pin, tx_pin, baud_rate, uart_num);
+    } else if (type == "HalfDuplexSerial") {
+        Module::expect(arguments, 4, integer, integer, integer, integer);
+        gpio_num_t rx_pin = (gpio_num_t)arguments[0]->evaluate_integer();
+        gpio_num_t tx_pin = (gpio_num_t)arguments[1]->evaluate_integer();
+        long baud_rate = arguments[2]->evaluate_integer();
+        uart_port_t uart_num = (uart_port_t)arguments[3]->evaluate_integer();
+        return std::make_shared<HalfDuplexSerial>(name, rx_pin, tx_pin, baud_rate, uart_num);
     } else if (type == "RoboClaw") {
         Module::expect(arguments, 2, identifier, integer);
         std::string serial_name = arguments[0]->evaluate_identifier();
