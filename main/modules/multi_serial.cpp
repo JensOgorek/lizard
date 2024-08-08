@@ -1,15 +1,15 @@
-#include "half_duplex_serial.h"
+#include "multi_serial.h"
 #include "utils/uart.h"
 #include <cstring>
 
 #define RX_BUF_SIZE 1024
 #define TX_BUF_SIZE 1024
 
-HalfDuplexSerial::HalfDuplexSerial(const std::string name,
-                                   const gpio_num_t rx_pin, const gpio_num_t tx_pin, const long baud_rate, const uart_port_t uart_num)
-    : Module(half_duplex_serial, name), rx_pin(rx_pin), tx_pin(tx_pin), baud_rate(baud_rate), uart_num(uart_num) {
+MultiSerial::MultiSerial(const std::string name,
+                         const gpio_num_t rx_pin, const gpio_num_t tx_pin, const long baud_rate, const uart_port_t uart_num)
+    : Module(multi_serial, name), rx_pin(rx_pin), tx_pin(tx_pin), baud_rate(baud_rate), uart_num(uart_num) {
     if (uart_is_driver_installed(uart_num)) {
-        throw std::runtime_error("serial interface is already in use");
+        throw std::runtime_error("MultiSerial interface is already in use");
     }
 
     const uart_config_t uart_config = {
@@ -26,12 +26,12 @@ HalfDuplexSerial::HalfDuplexSerial(const std::string name,
     uart_driver_install(uart_num, RX_BUF_SIZE, TX_BUF_SIZE, 0, NULL, 0);
 }
 
-void HalfDuplexSerial::enable_line_detection() const {
+void MultiSerial::enable_line_detection() const {
     uart_enable_pattern_det_baud_intr(this->uart_num, '\n', 1, 9, 0, 0);
     uart_pattern_queue_reset(this->uart_num, 100);
 }
 
-void HalfDuplexSerial::deinstall() const {
+void MultiSerial::deinstall() const {
     uart_driver_delete(this->uart_num);
     gpio_reset_pin(this->rx_pin);
     gpio_reset_pin(this->tx_pin);
@@ -41,13 +41,13 @@ void HalfDuplexSerial::deinstall() const {
     gpio_set_pull_mode(this->tx_pin, GPIO_FLOATING);
 }
 
-size_t HalfDuplexSerial::write(const uint8_t byte) const {
+size_t MultiSerial::write(const uint8_t byte) const {
     const char send = byte;
     uart_write_bytes(this->uart_num, &send, 1);
     return 1;
 }
 
-void HalfDuplexSerial::write_checked_line(const char *message, const int length) const {
+void MultiSerial::write_checked_line(const char *message, const int length) const {
     static char checksum_buffer[16];
     uint8_t checksum = 0;
     int start = 0;
@@ -64,7 +64,7 @@ void HalfDuplexSerial::write_checked_line(const char *message, const int length)
     }
 }
 
-int HalfDuplexSerial::available() const {
+int MultiSerial::available() const {
     if (!uart_is_driver_installed(this->uart_num)) {
         return 0;
     }
@@ -73,32 +73,32 @@ int HalfDuplexSerial::available() const {
     return available;
 }
 
-bool HalfDuplexSerial::has_buffered_lines() const {
+bool MultiSerial::has_buffered_lines() const {
     return uart_pattern_get_pos(this->uart_num) != -1;
 }
 
-void HalfDuplexSerial::flush() const {
+void MultiSerial::flush() const {
     uart_flush(this->uart_num);
 }
 
-int HalfDuplexSerial::read(uint32_t timeout) const {
+int MultiSerial::read(uint32_t timeout) const {
     uint8_t data = 0;
     const int length = uart_read_bytes(this->uart_num, &data, 1, timeout);
     return length > 0 ? data : -1;
 }
 
-int HalfDuplexSerial::read_line(char *buffer) const {
+int MultiSerial::read_line(char *buffer) const {
     int pos = uart_pattern_pop_pos(this->uart_num);
     return pos >= 0 ? uart_read_bytes(this->uart_num, (uint8_t *)buffer, pos + 1, 0) : 0;
 }
 
-void HalfDuplexSerial::clear() const {
+void MultiSerial::clear() const {
     while (this->available()) {
         this->read();
     }
 }
 
-std::string HalfDuplexSerial::get_output() const {
+std::string MultiSerial::get_output() const {
     if (!this->available()) {
         return "";
     }
@@ -112,7 +112,7 @@ std::string HalfDuplexSerial::get_output() const {
     return buffer;
 }
 
-void HalfDuplexSerial::call(const std::string method_name, const std::vector<ConstExpression_ptr> arguments) {
+void MultiSerial::call(const std::string method_name, const std::vector<ConstExpression_ptr> arguments) {
     if (method_name == "send") {
         for (auto const &argument : arguments) {
             if ((argument->type & integer) == 0) {
@@ -125,33 +125,5 @@ void HalfDuplexSerial::call(const std::string method_name, const std::vector<Con
         echo("%s %s", this->name.c_str(), output.c_str());
     } else {
         Module::call(method_name, arguments);
-    }
-}
-
-// Half-duplex specific methods
-
-void HalfDuplexSerial::send_data_to_sub(uint8_t slave_id, const std::string &data) const {
-    std::string message = std::to_string(slave_id) + ":" + data;
-    uart_write_bytes(this->uart_num, message.c_str(), message.length());
-}
-
-std::string HalfDuplexSerial::read_from_uart(uint32_t timeout) const {
-    uint8_t data[RX_BUF_SIZE];
-    int len = uart_read_bytes(this->uart_num, data, RX_BUF_SIZE, timeout);
-    if (len > 0) {
-        data[len] = '\0';
-        return std::string((char *)data);
-    }
-    return "";
-}
-
-void HalfDuplexSerial::check_for_commands(uint8_t slave_id, const std::function<void(const std::string &)> &handler) const {
-    std::string data = read_from_uart();
-    if (!data.empty()) {
-        uint8_t received_id = data[0] - '0';
-        if (received_id == slave_id) {
-            std::string message = data.substr(2); // Skip the "ID:"
-            handler(message);
-        }
     }
 }

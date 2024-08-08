@@ -11,12 +11,12 @@
 #include "driver/pcnt.h"
 #include "expander.h"
 #include "external_expander.h"
-#include "half_duplex_serial.h"
 #include "imu.h"
 #include "input.h"
 #include "linear_motor.h"
 #include "mcp23017.h"
 #include "motor_axis.h"
+#include "multi_serial.h"
 #include "odrive_motor.h"
 #include "odrive_wheels.h"
 #include "output.h"
@@ -79,18 +79,18 @@ Module_ptr Module::create(const std::string type,
         const gpio_num_t boot_pin = arguments.size() > 1 ? (gpio_num_t)arguments[1]->evaluate_integer() : GPIO_NUM_NC;
         const gpio_num_t enable_pin = arguments.size() > 2 ? (gpio_num_t)arguments[2]->evaluate_integer() : GPIO_NUM_NC;
         return std::make_shared<Expander>(name, serial, boot_pin, enable_pin, message_handler);
-    } else if (type == "ExternalExpander") {
-        Module::expect(arguments, 2, identifier, integer);
-        std::string serial_name = arguments[0]->evaluate_identifier();
-        Module_ptr module = Global::get_module(serial_name);
-        if (module->type != half_duplex_serial) {
-            throw std::runtime_error("module \"" + serial_name + "\" is no serial connection. it is a " + std::to_string(module->type));
+        // } else if (type == "ExternalExpander") {
+        //     Module::expect(arguments, 2, identifier, integer);
+        //     std::string serial_name = arguments[0]->evaluate_identifier();
+        //     Module_ptr module = Global::get_module(serial_name);
+        //     if (module->type != multi_serial) {
+        //         throw std::runtime_error("module \"" + serial_name + "\" is no serial connection. it is a " + std::to_string(module->type));
 
-            // throw std::runtime_error("module \"" + serial_name + "\" is no serial connection");
-        }
-        const ConstHalfDuplexSerial_ptr half_duplex_serial = std::static_pointer_cast<const HalfDuplexSerial>(module);
-        uint8_t expander_id = arguments[1]->evaluate_integer();
-        return std::make_shared<ExternalExpander>(name, half_duplex_serial, expander_id, message_handler);
+        //         // throw std::runtime_error("module \"" + serial_name + "\" is no serial connection");
+        //     }
+        //     const ConstMultiSerial_ptr half_duplex_serial = std::static_pointer_cast<const MultiSerial>(module);
+        //     uint8_t expander_id = arguments[1]->evaluate_integer();
+        //     return std::make_shared<ExternalExpander>(name, half_duplex_serial, expander_id, message_handler);
     } else if (type == "Bluetooth") {
         Module::expect(arguments, 1, string);
         std::string device_name = arguments[0]->evaluate_string();
@@ -249,13 +249,13 @@ Module_ptr Module::create(const std::string type,
         long baud_rate = arguments[2]->evaluate_integer();
         gpio_port_t uart_num = (gpio_port_t)arguments[3]->evaluate_integer();
         return std::make_shared<Serial>(name, rx_pin, tx_pin, baud_rate, uart_num);
-    } else if (type == "HalfDuplexSerial") {
+    } else if (type == "multi_serial") {
         Module::expect(arguments, 4, integer, integer, integer, integer);
         gpio_num_t rx_pin = (gpio_num_t)arguments[0]->evaluate_integer();
         gpio_num_t tx_pin = (gpio_num_t)arguments[1]->evaluate_integer();
         long baud_rate = arguments[2]->evaluate_integer();
         uart_port_t uart_num = (uart_port_t)arguments[3]->evaluate_integer();
-        return std::make_shared<HalfDuplexSerial>(name, rx_pin, tx_pin, baud_rate, uart_num);
+        return std::make_shared<MultiSerial>(name, rx_pin, tx_pin, baud_rate, uart_num);
     } else if (type == "RoboClaw") {
         Module::expect(arguments, 2, identifier, integer);
         std::string serial_name = arguments[0]->evaluate_identifier();
