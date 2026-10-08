@@ -871,6 +871,18 @@ void SerialBus::request_peer_layouts() {
     }
 }
 
+void SerialBus::request_layout(const uint8_t peer_id, const bool force) {
+    const auto asked = this->layout_request_millis.find(peer_id);
+    if (!force && asked != this->layout_request_millis.end() && millis_since(asked->second) <= 2000) {
+        return;
+    }
+    this->layout_request_millis[peer_id] = millis();
+    try {
+        this->send_to(peer_id, "core.telemetry_info()");
+    } catch (const std::runtime_error &) {
+    }
+}
+
 bool SerialBus::listens_to(const uint8_t peer_id) const {
     return std::any_of(this->telemetry_listeners.begin(), this->telemetry_listeners.end(),
                        [&](const BusTelemetry *listener) { return listener->peer_id == peer_id; });
@@ -933,15 +945,7 @@ void SerialBus::handle_telemetry_frame(const IncomingMessage &message) {
     const auto layout = this->peer_layouts.find(message.sender);
     const int expected = layout == this->peer_layouts.end() ? -1 : layout->second.expected_payload(frame_id);
     if (expected < 0) {
-        // the layout did not reach us (we booted after the peer, or a line got lost): ask for it, at most every 2 s
-        const auto asked = this->layout_request_millis.find(message.sender);
-        if (asked == this->layout_request_millis.end() || millis_since(asked->second) > 2000) {
-            this->layout_request_millis[message.sender] = millis();
-            try {
-                this->send_to(message.sender, "core.telemetry_info()");
-            } catch (const std::runtime_error &) {
-            }
-        }
+        this->request_layout(message.sender); // the layout did not reach us: we booted after the peer, or a line got lost
         return;
     }
     if (static_cast<size_t>(expected) != payload_length) {

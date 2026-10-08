@@ -41,6 +41,11 @@ BusTelemetry::~BusTelemetry() {
 
 void BusTelemetry::step() {
     this->age->set_integer_value(this->frame_seen ? millis_since(this->last_frame_millis) : millis());
+    // declared after the peer's layout lines passed, e.g. at the command line: ask for them once the declarations settle
+    if (this->layout_wanted && millis_since(this->last_declaration_millis) > 200) {
+        this->layout_wanted = false;
+        this->bus->request_layout(this->peer_id, true);
+    }
     // the peer sends frames, but none of them carries a declared name: said once, the mirror keeps its start value
     if (!this->missing_reported && this->first_peer_frame_millis && millis_since(this->first_peer_frame_millis) > MISSING_REPORT_MS) {
         this->missing_reported = true;
@@ -73,7 +78,10 @@ void BusTelemetry::declare_property(const std::string &property_name, const Vari
     }
     const auto inserted = this->properties.emplace(property_name, variable).first;
     this->declared.push_back(&inserted->first);
-    this->missing_reported = false; // the new name gets its own report if no frame carries it
+    this->layout_wanted = true; // the peer's layout lines may have passed before this name was declared
+    this->last_declaration_millis = millis();
+    this->first_peer_frame_millis = 0; // the report about a name no frame carries waits for frames after the declaration
+    this->missing_reported = false;
 }
 
 void BusTelemetry::write_property(const std::string property_name, const ConstExpression_ptr expression, const bool from_expander) {
