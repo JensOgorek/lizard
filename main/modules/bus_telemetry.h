@@ -20,6 +20,8 @@ private:
     unsigned long last_frame_millis = 0;
     unsigned long first_peer_frame_millis = 0; // when the first frame of the peer arrived, 0 before
     bool missing_reported = false;
+    bool layout_wanted = false; // a declaration came after the peer's layout lines may have passed: ask again
+    unsigned long last_declaration_millis = 0;
     Variable_ptr age;
     Variable_ptr peer_millis;
     Variable_ptr frames;

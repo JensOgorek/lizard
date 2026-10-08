@@ -48,7 +48,8 @@ public:
     void send_to(uint8_t receiver, const std::string &payload);
     void add_telemetry_listener(BusTelemetry *listener);
     void remove_telemetry_listener(BusTelemetry *listener);
-    void request_peer_layouts(); // asks every peer for its layout lines, for the host that reads them through this node
+    void request_peer_layouts();       // asks every peer for its layout lines, for the host that reads them through this node
+    void request_layout(uint8_t peer_id, bool force = false); // asks one peer for its layout lines, at most every 2 s unless forced
     const BusTelemetry *declaring_listener(uint8_t peer_id, const std::string &name) const;
 
 private:
