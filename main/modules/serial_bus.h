@@ -48,8 +48,7 @@ public:
     void send_to(uint8_t receiver, const std::string &payload);
     void add_telemetry_listener(BusTelemetry *listener);
     void remove_telemetry_listener(BusTelemetry *listener);
-    void request_telemetry_orders(BusTelemetry *listener);
-    bool reads_other_format(uint8_t peer_id) const { return this->other_format_peers.count(peer_id) > 0; }
+    void request_peer_layouts(); // asks every peer for its layout lines, for the host that reads them through this node
     const BusTelemetry *declaring_listener(uint8_t peer_id, const std::string &name) const;
 
 private:
@@ -173,17 +172,17 @@ private:
     std::map<uint8_t, telemetry::Layout> peer_layouts;
     std::map<uint16_t, uint8_t> last_seq; // sender << 8 | frame id
     std::vector<BusTelemetry *> telemetry_listeners;
-    std::set<uint8_t> telemetry_rounds;                     // peers that got their clear and orders since our boot
-    std::atomic<uint32_t> telemetry_round_bits[8] = {};     // the same for the communication task, one bit per peer id
     std::map<uint8_t, unsigned long> layout_request_millis; // when each peer was last asked for its layout lines
+    std::atomic<unsigned> dropped_frames{0};                // frames the communication task dropped to keep the inbound queue free
     unsigned long last_telemetry_warning_millis = 0;
     unsigned long last_slot_warning_millis = 0;
     std::set<uint8_t> other_format_peers; // peers whose layout lines have another format version, until their Ready.
-    void start_telemetry_round(uint8_t peer_id);
+    bool listens_to(uint8_t peer_id) const;
+    void forget_peer_telemetry(uint8_t peer_id);
     void handle_telemetry_frame(const IncomingMessage &message);
     void handle_telemetry_layout(const IncomingMessage &message);
     // counters resolved once: a lookup by a long name would allocate a temporary string for every frame
-    Variable_ptr telemetry_frames, telemetry_errors, telemetry_unclaimed, telemetry_mismatch, telemetry_gaps,
+    Variable_ptr telemetry_frames, telemetry_errors, telemetry_dropped, telemetry_mismatch, telemetry_gaps,
         telemetry_duplicates, frame_overwrites_property, frame_drops_property;
     static void count(const Variable_ptr &counter, int64_t increment = 1);
 

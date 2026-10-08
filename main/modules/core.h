@@ -38,6 +38,7 @@ private:
     Variable_ptr telemetry_info_rate; // resolved once: a lookup by this name would allocate a temporary string every step
     std::vector<TelemetryFrame> telemetry_frames;
     std::deque<std::pair<uint8_t, size_t>> pending_layout; // frame id and field index still to announce
+    uint8_t announced_coordinator = 0;                     // the bus node that got the layouts of our own frames
     void define_telemetry(const std::vector<ConstExpression_ptr> &arguments);
     void clear_telemetry();
     SerialBus *polled_bus() const;

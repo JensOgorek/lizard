@@ -72,7 +72,7 @@ const std::map<std::string, Variable_ptr> SerialBus::get_defaults() {
         {"frame_drops", std::make_shared<IntegerVariable>(0)},
         {"telemetry_frames", std::make_shared<IntegerVariable>(0)},
         {"telemetry_errors", std::make_shared<IntegerVariable>(0)},
-        {"telemetry_unclaimed", std::make_shared<IntegerVariable>(0)},
+        {"telemetry_dropped", std::make_shared<IntegerVariable>(0)},
         {"telemetry_mismatch", std::make_shared<IntegerVariable>(0)},
         {"telemetry_gaps", std::make_shared<IntegerVariable>(0)},
         {"telemetry_duplicates", std::make_shared<IntegerVariable>(0)},
@@ -84,7 +84,7 @@ SerialBus::SerialBus(const std::string &name, const ConstSerial_ptr serial, cons
     this->properties = SerialBus::get_defaults();
     this->telemetry_frames = this->properties.at("telemetry_frames");
     this->telemetry_errors = this->properties.at("telemetry_errors");
-    this->telemetry_unclaimed = this->properties.at("telemetry_unclaimed");
+    this->telemetry_dropped = this->properties.at("telemetry_dropped");
     this->telemetry_mismatch = this->properties.at("telemetry_mismatch");
     this->telemetry_gaps = this->properties.at("telemetry_gaps");
     this->telemetry_duplicates = this->properties.at("telemetry_duplicates");
@@ -163,6 +163,7 @@ void SerialBus::step() {
     // the communication task counts in atomics, the properties belong to the main task
     this->frame_overwrites_property->set_integer_value(this->frame_overwrites.load());
     this->frame_drops_property->set_integer_value(this->frame_drops.load());
+    this->telemetry_dropped->set_integer_value(this->dropped_frames.load());
 
     Module::step();
 }
@@ -413,9 +414,10 @@ void SerialBus::process_uart() {
             }
         }
 
-        // frames of a peer before its round (orders of our previous run, while this one boots) would only crowd the queue
-        if (message.payload[0] == telemetry::FRAME_PREFIX &&
-            !(this->telemetry_round_bits[message.sender >> 5].load() & (1u << (message.sender & 31)))) {
+        // telemetry frames never take the last slots of the inbound queue, so a flood of them (e.g. while the main task
+        // runs the startup) cannot crowd out commands, echoes and OTB chunks
+        if (message.payload[0] == telemetry::FRAME_PREFIX && uxQueueSpacesAvailable(this->inbound_queue) <= otb::BUS_OTB_WINDOW) {
+            this->dropped_frames++;
             continue;
         }
 
@@ -623,13 +625,7 @@ void SerialBus::handle_incoming_message(const IncomingMessage &message) {
         buffer[copy_len] = '\0';
         echo("bus[%u]: %s", message.sender, buffer);
         if (std::strcmp(buffer, "Ready.") == 0) {
-            // the peer booted: it forgot its orders, so it gets a clear and all orders again
-            for (BusTelemetry *const listener : this->telemetry_listeners) {
-                if (listener->peer_id == message.sender) {
-                    this->start_telemetry_round(message.sender);
-                    break;
-                }
-            }
+            this->forget_peer_telemetry(message.sender); // the peer booted: its frames and layouts start anew
         }
         return;
     }
@@ -863,34 +859,35 @@ const BusTelemetry *SerialBus::declaring_listener(const uint8_t peer_id, const s
     return nullptr;
 }
 
-void SerialBus::request_telemetry_orders(BusTelemetry *listener) {
-    if (this->telemetry_rounds.count(listener->peer_id)) {
-        listener->send_orders();
-    } else {
-        this->start_telemetry_round(listener->peer_id);
+void SerialBus::request_peer_layouts() {
+    // the host reads the peers' frames through this node, so it gets their layout lines the same way
+    for (size_t i = 0; i < this->config.peer_count; ++i) {
+        try {
+            this->send_to(this->config.peer_ids[i], "core.telemetry_info()");
+        } catch (const std::runtime_error &e) {
+            echo("warning: serial bus %s could not ask node %u for its telemetry layout: %s",
+                 this->name.c_str(), this->config.peer_ids[i], e.what());
+        }
     }
 }
 
-void SerialBus::start_telemetry_round(const uint8_t peer_id) {
-    // a clear first, so that a peer that kept running does not stream the frames of an outdated startup
-    this->peer_layouts[peer_id].clear();
+bool SerialBus::listens_to(const uint8_t peer_id) const {
+    return std::any_of(this->telemetry_listeners.begin(), this->telemetry_listeners.end(),
+                       [&](const BusTelemetry *listener) { return listener->peer_id == peer_id; });
+}
+
+void SerialBus::forget_peer_telemetry(const uint8_t peer_id) {
+    this->peer_layouts.erase(peer_id);
     this->other_format_peers.erase(peer_id); // it may have been updated
+    this->layout_request_millis.erase(peer_id);
     for (auto it = this->last_seq.begin(); it != this->last_seq.end();) {
-        it = (it->first >> 8) == peer_id ? this->last_seq.erase(it) : std::next(it); // new frames count from anew
+        it = (it->first >> 8) == peer_id ? this->last_seq.erase(it) : std::next(it); // its frames count from anew
     }
     for (BusTelemetry *const listener : this->telemetry_listeners) {
         if (listener->peer_id == peer_id) {
             listener->reset_layout();
         }
     }
-    this->send_to(peer_id, "core.clear_telemetry()");
-    for (BusTelemetry *const listener : this->telemetry_listeners) {
-        if (listener->peer_id == peer_id) {
-            listener->send_orders();
-        }
-    }
-    this->telemetry_rounds.insert(peer_id);
-    this->telemetry_round_bits[peer_id >> 5] |= 1u << (peer_id & 31);
 }
 
 void SerialBus::count(const Variable_ptr &counter, const int64_t increment) {
@@ -898,9 +895,6 @@ void SerialBus::count(const Variable_ptr &counter, const int64_t increment) {
 }
 
 void SerialBus::handle_telemetry_frame(const IncomingMessage &message) {
-    if (!this->telemetry_rounds.count(message.sender) || this->other_format_peers.count(message.sender)) {
-        return; // frames from before our own orders (e.g. of our previous run) or in a format we do not read
-    }
     static uint8_t body[telemetry::MAX_BODY + 3];
     const size_t length = telemetry::decode_line(message.payload, message.length, body, sizeof(body));
     if (length == 0) {
@@ -917,41 +911,46 @@ void SerialBus::handle_telemetry_frame(const IncomingMessage &message) {
     uint32_t peer_millis;
     memcpy(&peer_millis, &body[2], 4);
     const size_t payload_length = length - telemetry::HEADER_SIZE - telemetry::CRC_SIZE;
-
-    const auto layout = this->peer_layouts.find(message.sender);
-    const int expected = layout == this->peer_layouts.end() ? -1 : layout->second.expected_payload(frame_id);
-    bool claimed = false;
-    if (expected >= 0 && static_cast<size_t>(expected) != payload_length) {
-        this->count(this->telemetry_mismatch);
-    } else if (expected >= 0) {
-        // sequence numbers only of frames whose layout we know: a stale frame of the old orders, right after a round,
-        // would start the count with a number of another definition
-        const uint16_t key = static_cast<uint16_t>(message.sender) << 8 | frame_id;
-        const auto last = this->last_seq.find(key);
-        if (last != this->last_seq.end()) {
-            const uint8_t missing = static_cast<uint8_t>(seq - last->second - 1);
-            if (seq == last->second) {
-                this->count(this->telemetry_duplicates);
-            } else if (missing < 128) {
-                this->count(this->telemetry_gaps, missing);
-            }
-        }
-        this->last_seq[key] = seq;
-        for (BusTelemetry *const listener : this->telemetry_listeners) {
-            if (listener->peer_id == message.sender) {
-                claimed |= listener->handle_frame(frame_id, seq, peer_millis, &body[telemetry::HEADER_SIZE]);
-            }
+    const uint16_t key = static_cast<uint16_t>(message.sender) << 8 | frame_id;
+    const auto last = this->last_seq.find(key);
+    if (last != this->last_seq.end()) {
+        const uint8_t missing = static_cast<uint8_t>(seq - last->second - 1);
+        if (seq == last->second) {
+            this->count(this->telemetry_duplicates);
+        } else if (missing < 128) {
+            this->count(this->telemetry_gaps, missing);
         }
     }
-    if (!claimed) {
-        this->count(this->telemetry_unclaimed);
-        // a frame whose layout is incomplete lost a layout line on the way: ask the peer for its layout again
-        const bool listened = std::any_of(this->telemetry_listeners.begin(), this->telemetry_listeners.end(),
-                                          [&](const BusTelemetry *listener) { return listener->peer_id == message.sender; });
-        const auto last = this->layout_request_millis.find(message.sender);
-        if (expected < 0 && listened && (last == this->layout_request_millis.end() || millis_since(last->second) > 2000)) {
+    this->last_seq[key] = seq;
+
+    // the host gets the frame as it came, with the sender in the prefix, like an echo line
+    echo("bus[%u]: %s", message.sender, message.payload);
+
+    // the mirrors of this node take their fields out of the same frame once its layout is known
+    if (!this->listens_to(message.sender) || this->other_format_peers.count(message.sender)) {
+        return;
+    }
+    const auto layout = this->peer_layouts.find(message.sender);
+    const int expected = layout == this->peer_layouts.end() ? -1 : layout->second.expected_payload(frame_id);
+    if (expected < 0) {
+        // the layout did not reach us (we booted after the peer, or a line got lost): ask for it, at most every 2 s
+        const auto asked = this->layout_request_millis.find(message.sender);
+        if (asked == this->layout_request_millis.end() || millis_since(asked->second) > 2000) {
             this->layout_request_millis[message.sender] = millis();
-            this->send_to(message.sender, "core.telemetry_info()");
+            try {
+                this->send_to(message.sender, "core.telemetry_info()");
+            } catch (const std::runtime_error &) {
+            }
+        }
+        return;
+    }
+    if (static_cast<size_t>(expected) != payload_length) {
+        this->count(this->telemetry_mismatch); // the layout is from another definition of this frame id
+        return;
+    }
+    for (BusTelemetry *const listener : this->telemetry_listeners) {
+        if (listener->peer_id == message.sender) {
+            listener->handle_frame(frame_id, seq, peer_millis, &body[telemetry::HEADER_SIZE]);
         }
     }
 }
@@ -962,8 +961,12 @@ void SerialBus::handle_telemetry_layout(const IncomingMessage &message) {
         this->count(this->telemetry_errors);
         return;
     }
+    echo("bus[%u]: %s", message.sender, message.payload);
+    if (!this->listens_to(message.sender)) {
+        return; // nothing to decode here, the host keeps its own copy of the layout
+    }
     if (line.version != telemetry::FORMAT_VERSION) {
-        // said once; its frames are ignored and nothing is ordered again until the peer boots (it may have been updated)
+        // said once; its frames are passed on but not mirrored until the peer boots (it may have been updated)
         if (this->other_format_peers.insert(message.sender).second) {
             echo("warning: serial bus %s: node %u sends telemetry format v%d, this node reads v%d",
                  this->name.c_str(), message.sender, line.version, telemetry::FORMAT_VERSION);

@@ -240,6 +240,12 @@ void Core::call(const std::string method_name, const std::vector<ConstExpression
         for (auto &frame : this->telemetry_frames) {
             this->announce(frame);
         }
+        // the host reads the frames of bus peers through this node, so their layouts come the same way
+        for (auto const &[module_name, module] : Global::modules) {
+            if (SerialBus *const bus = dynamic_cast<SerialBus *>(module.get())) {
+                bus->request_peer_layouts();
+            }
+        }
     } else if (method_name == "clear_telemetry") {
         Module::expect(arguments, 0);
         this->clear_telemetry();
@@ -505,6 +511,15 @@ void Core::emit_telemetry() {
     const unsigned long now = millis();
     static char line[telemetry::MAX_LINE];
     SerialBus *const polled = this->telemetry_frames.empty() ? nullptr : this->polled_bus();
+    if (polled && polled->coordinator() != this->announced_coordinator) {
+        // a coordinator started polling us: it has not seen the layouts of our own frames, which went to the console
+        this->announced_coordinator = polled->coordinator();
+        for (auto &frame : this->telemetry_frames) {
+            if (!frame.bus) {
+                this->announce(frame, true);
+            }
+        }
+    }
     for (auto &frame : this->telemetry_frames) {
         if (frame.layout_pending > 0 || (frame.interval > 0 && now - frame.last_millis < frame.interval)) {
             continue;

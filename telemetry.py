@@ -28,6 +28,7 @@ from typing import Any, Union
 FORMAT_VERSION = 'v1'
 SIZES = {'f': 4, 'i': 4, 'e': 2}  # bools ('?') are bits after the numeric fields
 LAYOUT_LINE = re.compile(r'__LAYOUT__(v[0-9]+)(?: (.*))?')
+BUS_LINE = re.compile(r'bus\[(\d+)\]: (.*)')  # a peer's line passed on by a serial bus coordinator
 LAYOUT_FIELD = re.compile(r'([0-9]{1,3})\.([0-9]+)(?:/([0-9]+))? ([^\s:]+):([fie?])')
 Value = Union[float, int, bool]
 
@@ -151,7 +152,12 @@ class Decoder:
         self._warned: set[tuple[Hashable, str]] = set()
 
     def feed(self, line: str, sender: Hashable = None) -> Text | Layout | Frame:
-        """Classify one line given without line end and '@xx' (see check_line)."""
+        """Classify one line given without line end and '@xx' (see check_line).
+
+        A line a serial bus coordinator passes on from a peer, `bus[<id>]: ...`, is classified as that peer's."""
+        relayed = BUS_LINE.fullmatch(line)
+        if relayed and sender is None:
+            return self.feed(relayed.group(2), sender=int(relayed.group(1)))
         if line.startswith('~'):
             body = _frame_body(line[1:])
             if body is not None:
