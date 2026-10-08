@@ -83,30 +83,45 @@ The frame body `01 07 40e20100 b6f39d3f 08000000 01 c017` holds frame ID 1, sequ
 
 ## Serial bus
 
-A [serial bus](module_reference.md#serial-bus) coordinator receives values of a peer as frames into a [bus telemetry](module_reference.md#bus-telemetry) module, whose declared properties name the values:
+A [serial bus](module_reference.md#serial-bus) peer defines its frames like any node, in its startup script or at its command line:
+
+```
+serial = Serial(3, 1, 460800, 2)
+bus = SerialBus(serial, 2)
+core.telemetry(motor.position, motor.enabled, parked, 100)
+```
+
+Once a coordinator polls the peer, the peer keeps the newest frame of each ID and sends it with the next poll, so a poll delivers the current values and no backlog; a replaced frame does not count in the sequence numbers.
+Before the first poll its frames and layout lines go to its own command line; with the first poll it announces its layouts again, this time to the coordinator.
+It keeps at most 8 frames per bus and warns about any further one, which it does not send.
+
+The coordinator checks the CRC of every frame and passes frames and layout lines on to its command line with the sender in front, like echo lines:
+
+```
+bus[2]: __LAYOUT__v1 1.0/3 motor.position:f@xx
+bus[2]: ~AQdA4gEAtvOdPwgAAAABwBc=@5c
+```
+
+A host decodes them with the sender as the key, as `telemetry.py` does (see below).
+`core.telemetry_info()` on the coordinator also asks every peer for its layout lines, so a host that connects later gets them the same way.
+Frames never take the last slots of the bus's inbound queue; frames dropped for that reason, e.g. while the coordinator runs its startup, are counted in `telemetry_dropped`.
+
+A coordinator that needs a value of a peer itself, e.g. in a rule, declares it in a [bus telemetry](module_reference.md#bus-telemetry) module:
 
 ```
 bus = SerialBus(serial, 1)
 bus.make_coordinator(2)
 arm = BusTelemetry(bus, 2)
-float arm.motor.position = 0.0
-bool arm.motor.enabled = false
-int arm.count = 0
+bool arm.parked = false
+when arm.parked == false then wheels.locked = true end
 ```
 
-After the startup, and again whenever the peer reports `Ready.` after a boot, the coordinator sends the peer `core.clear_telemetry()` and orders the declared values, here with `core.telemetry(motor.position, motor.enabled, count, 100)`.
-Properties declared later, e.g. at the command line, are ordered right away.
-If a frame arrives whose layout is incomplete, e.g. because a layout line got lost, the coordinator asks the peer for its layout lines again, at most every 2 seconds.
-If no frame of a bus telemetry module arrives for 5 seconds, or 10 of its intervals if that is longer, the coordinator sends its order again, at most once per such period; a peer that still has the frame only sends its layout lines again.
-If frames arrive but no layout line brought some of the declared values, e.g. because an order line got lost, the coordinator orders just those again, as often.
-If the peer cannot resolve a name, it rejects that order, and the coordinator prints the peer's error as `bus[2]: ...`, again with every renewed order.
-A peer whose layout lines carry another format version is reported once; its frames are ignored and nothing is ordered again until it reports `Ready.`.
-
-The peer keeps the newest frame of each ID and sends it with the next poll, so a poll delivers the current values and no backlog; a replaced frame does not count in the sequence numbers.
-It keeps at most 8 frames per bus and warns about any further one, which it does not send.
-The coordinator copies each frame into the declared properties, which rules and `core.telemetry` use like any other property, while `arm.age` tells how old they are.
-Frames that a peer defines itself, in its startup script or at its command line, go to the coordinator once the coordinator has polled the peer, and to the command line before.
-Bus payloads that start with `~` or `__LAYOUT__` are taken as telemetry and neither printed nor interpreted as Lizard code.
+The module looks for its declared names in the layout lines of node 2 and copies the fields out of every frame that passes by; nothing is ordered from the peer, which has to send the value in one of its own frames.
+Until a frame with the value arrives, the property keeps its start value and `arm.age` counts up, so a rule sees a missing value like a dead peer.
+If frames of the peer arrive but none of them carries a declared name within 5 seconds, the module says so once.
+When a frame arrives whose layout the coordinator does not have, e.g. because it booted after the peer, it asks the peer for its layout lines, at most every 2 seconds; when the peer reports `Ready.`, the coordinator forgets its layouts.
+A peer whose layout lines carry another format version is reported once; its frames are still passed on, but not mirrored until the peer boots again.
+Bus payloads that start with `~` or `__LAYOUT__` are taken as telemetry and neither printed as commands nor interpreted as Lizard code.
 
 ## Expander
 

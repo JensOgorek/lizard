@@ -117,9 +117,9 @@ The serial bus module lets multiple ESP32s share a UART link with a coordinator 
 | -------------------------- | ------------------------------------------------------------------------------------------------------------- | --------- |
 | `bus.offset_<id>`          | Estimated clock offset of peer `<id>` (peer clock minus coordinator clock) in milliseconds, NaN while invalid | `float`   |
 | `bus.offset_<id>_accuracy` | Error bound of `offset_<id>` in milliseconds (the true offset lies within `offset_<id>` ± this value)         | `float`   |
-| `bus.telemetry_frames`     | Telemetry frames received from peers since their order round (coordinator)                                    | `int`     |
+| `bus.telemetry_frames`     | Telemetry frames received from peers (coordinator)                                                            | `int`     |
 | `bus.telemetry_errors`     | Malformed telemetry frames and layout lines received (coordinator)                                            | `int`     |
-| `bus.telemetry_unclaimed`  | Received frames that no bus telemetry module took (coordinator)                                               | `int`     |
+| `bus.telemetry_dropped`    | Frames dropped to keep the inbound queue free for commands and OTB chunks (coordinator)                       | `int`     |
 | `bus.telemetry_mismatch`   | Received frames whose size does not match their layout (coordinator)                                          | `int`     |
 | `bus.telemetry_gaps`       | Frames missing according to the sequence numbers (coordinator)                                                | `int`     |
 | `bus.telemetry_duplicates` | Received frames that repeat the previous sequence number (coordinator)                                        | `int`     |
@@ -168,20 +168,20 @@ Use the `otb_update.py` tool to push new firmware to any peer node.
 See [OTB Update](tools.md#otb-update) for details.
 
 **Telemetry:**
-A coordinator copies [telemetry frames](telemetry.md#serial-bus) of its peers into [bus telemetry](#bus-telemetry) modules and counts them in the `telemetry_*` properties.
+A coordinator passes [telemetry frames](telemetry.md#serial-bus) of its peers on to its command line as `bus[<id>]: ` lines, copies declared fields into [bus telemetry](#bus-telemetry) modules and counts the frames in the `telemetry_*` properties.
 A peer keeps the newest frame of up to 8 frame IDs per bus until the next poll and counts replaced and dropped frames in `frame_overwrites` and `frame_drops`.
 
 ## Bus Telemetry
 
-The bus telemetry module lets a [serial bus](#serial-bus) coordinator mirror values of a peer, which the peer sends as [telemetry frames](telemetry.md#serial-bus).
+The bus telemetry module lets a [serial bus](#serial-bus) coordinator mirror values of a peer, taken out of the [telemetry frames](telemetry.md#serial-bus) the peer sends.
 
-| Constructor                               | Description                                                 | Arguments                    |
-| ----------------------------------------- | ----------------------------------------------------------- | ---------------------------- |
-| `arm = BusTelemetry(bus, id[, interval])` | Serial bus, peer `id` and frame interval (ms, default: 100) | SerialBus module, 1–2x `int` |
+| Constructor                  | Description              | Arguments               |
+| ---------------------------- | ------------------------ | ----------------------- |
+| `arm = BusTelemetry(bus, id)` | Serial bus and peer `id` | SerialBus module, `int` |
 
 | Properties   | Description                                                        | Data type |
 | ------------ | ------------------------------------------------------------------ | --------- |
-| `arm.age`    | Time since the last frame, or since boot before the first one (ms) | `int`     |
+| `arm.age`    | Time since the last frame with a declared field, or since boot before the first one (ms) | `int`     |
 | `arm.millis` | `core.millis` of the peer when it built the last frame             | `int`     |
 | `arm.frames` | Number of frames copied into the declared properties               | `int`     |
 
@@ -194,7 +194,7 @@ int arm.count = 0
 ```
 
 A name with a dot like `motor.position` refers to a property of a module on the peer, a name without like `count` to a variable of the peer.
-A declared property holds its declared value until the first frame arrives, and then the last received value.
+A declared property holds its declared value until the first frame with that field arrives, and then the last received value; the peer has to send the field in one of its own frames.
 If the peer sends a value with another type, the coordinator prints a warning and the property keeps its value.
 Declared properties can be `bool`, `int` or `float` and cannot be named `age`, `millis` or `frames`.
 All properties of the module are read-only.
